@@ -128,6 +128,21 @@ Uses: No registers altered by the function
 find_max:
     PUSH    {lr} 
 
+    LDR    r1, [r0], #4     /* Load first element of the array */
+    MOV    r2, r1           /* Copy the first element to r2 */
+    _loop2:
+        LDR    r3, [r0], #4 /* Load next element of the array */
+        CMP    r3, #0       /* Check if the element is zero */
+        BEQ    _end_loop    /* If zero, end loop */
+        CMP    r3, r2       /* Compare the element with the maximum value */
+        BGT    _update_max  /* If greater, update the maximum value */
+        B      _loop2        /* Continue the loop */
+    _update_max:
+        MOV    r2, r3       /* Update the maximum value */
+        B      _loop2        /* Continue the loop */
+    _end_loop:
+        MOV    r0, r2       /* Return the maximum value */
+
 /* Add code to find maximum value element here! */
 /* Any registers altered by the function beside r0-r3 must be preserved */
 

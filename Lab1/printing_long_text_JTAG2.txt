@@ -1,0 +1,47 @@
+// Symbolic constants
+.equ UART_BASE, 0xff201000
+.equ UART_DATA_REGISTER_ADDRESS, 0xff201000
+.equ UART_CONTROL_REGISTER_ADDRESS, 0xff201004
+
+.data
+sample_text: .asciz "Hello, world!\n"
+long_text: .asciz "This is a long text, more than 64 characters, that will be stored in the data section of the program.\n"
+
+.text
+.global _start
+_start:
+    LDR r0, =UART_DATA_REGISTER_ADDRESS
+    LDR r1, =UART_CONTROL_REGISTER_ADDRESS
+    LDR r2, =long_text    // Load the address of the long text
+	
+uart_wait:
+    LDR r5, =10000       // Load a delay counter
+wait_loop:
+    SUBS r5, r5, #1     // Decrement the delay counter
+    BNE wait_loop       // Continue waiting if r5 not zero
+    B uart_loop         // Go back and check for space again
+
+uart_loop:
+    LDRB r3, [r2], #1     // Load a character from the text and increment the address in r2 afterwards
+    CMP r3, #0            // Check if the byte is null
+    BEQ uart_loop_end     // If end of text, done
+
+    // Check WSPACE
+    LDR r4, [r1]          // Read the control register
+    LSR r4, r4, #16       // Shift right to move WSPACE to the lower 16 bits
+    CMP r4, #0            // Compare WSPACE value with 0
+    BEQ uart_wait         // If no space, go to wait
+
+    // Write the character if there is available space
+    STRB r3, [r0]         // Store the character into the data register
+
+    B uart_loop           // Loop back to write next character
+	
+
+
+
+uart_loop_end:
+    // Any end of loop handling
+
+_halt:
+    B _halt
