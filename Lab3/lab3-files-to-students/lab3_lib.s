@@ -49,48 +49,114 @@ inImage:
     ret
 
 
+
+
+
 getInt:
-    call getInPos
+   call getInPos
+   leaq inBuffer(%rip), %rbx  # Load address of inBuffer into %rbx
 
-    leaq inBuffer(%rip), %rbx
+   xor %rdx, %rdx             # Clear %rdx, will store the final integer value
+   xor %rsi, %rsi             # Clear %rsi, will use as flag for negativity
+   xor %rcx, %rcx             # Clear %rcx, count of characters processed
 
-    xor %rdx, %rdx
-    xor %rcx, %rcx
+   movzbl (%rbx), %r8d        # Load current character into %r8
+   inc %rbx                   # Move to the next character
+   incq currentPos(%rip)      # Increment position
 
 readChar:
-    movzbl (%rbx), %r8d            # Load current character
-    inc %rbx                       # Move to the next character
-    inc currentPos(%rip)           # Increment position
+   cmp $'-', %r8              # Check if negative
+   je isNegative              # Jump if negative
+   cmp $'+', %r8d              # Check if positive explicitly indicated
+   je nextChar                 # Skip the '+' sign to start parsing the number
 
-    cmp $'-', %r8                  # Check if negative
-    je isNegative
-    cmp $'+', %r8                  # Check if positive
-    je isPositive
 
 isPositive:
-    inc %rcx
-    movzbl (%rbx), %r8d               # Load current character
-    sub $'0', %r8                     # Convert ASCII to integer
-    cmp $9, %r8                       # Compare to 9
-    ja finish_parsing                 # If above '9', finish parsing
-    imul $10, %rdx, %rdx              # Multiply current value by 10
-    add %r8, %rdx                     # Add new digit
-    inc %rbx                          # Move to the next character
-    inc %rcx                          # Increment position count
-    jmp parse_number                  # Continue parsing
-
-
+   sub $'0', %r8              # Convert ASCII to integer (0-9)
+   cmp $9, %r8                # Compare to 9
+   ja finish_parsing           # If above '9', finish parsing
+   imul $10, %rdx, %rdx        # Multiply current value by 10
+   add %r8, %rdx              # Add new digit
+   jmp nextChar                # Prepare to read next character
 
 isNegative:
-    not %rdx
+   mov $1, %rsi               # Set %rsi to 1 to indicate negative number
 
 
+#skipSign:
+#   inc %rbx                    # Move to the next character in buffer
+#   incq currentPos(%rip)       # Increment position in buffer
+#   jmp nextChar                # Jump to read next character without conversion
 
-parseNumber:
-    
+nextChar:
+   movzbl (%rbx), %r8d         # Load next character
+   inc %rbx                    # Increment buffer pointer
+   incq currentPos(%rip)       # Increment position counter
+   jmp isPositive              # Continue parsing as positive unless ended
+
+finish_parsing:
+   test %rsi, %rsi             # Test if the flag for negativity is set
+   jz parsing_done             # If zero, number is positive
+   neg %rdx                    # Negate the result if flag is set
+
+parsing_done:
+   mov %rdx, %rax              # Move the result to %rax for return
+   ret
+   
+
+#getText:
+#    # rdi = inbuffer
+#    # rsi = antal characters
+#    loop:
+#    cmp %rsi, $0
+#    je return
+#
+#
+#    movzbl (%rdi), %r8d         # Load next character
+#    inc %rdi                    # Increment buffer pointer
+#    dec %rsi                    # Decrement character counter
+#
+#
+#    jmp loop
+#
+#
+#
+#return:
+#    ret
+#
+
+#    # rdi = inbuffer
+#    # rsi = antal characters
+
+getText:
+    call getInPos
+    leaq inBuffer(%rip), %r9
+    addq currentPos, %r9
+    xor %rax, %rax
+    xor %rcx, %rcx
+
+getTextLoop:
+    movzbl (%r9), %rcx
+    cmp null, %rcx
+    je getTextEnd
+    cmp 
 
 
+MAX POS = 64 - current pos
 
+
+getTextEnd: # maybe cancel here instead idk
+    call inImage
+    ret
+
+getMaxPos:
+    call getInPos
+    cmp $64, %rax
+    jge setMaxPos
+
+setMaxPos:
+    movq $64, %rax
+    ret
 
 
 getChar:
@@ -139,9 +205,5 @@ putChar:
 
 putInt:
     ret
-
-getText:
-    ret
-
 
 
