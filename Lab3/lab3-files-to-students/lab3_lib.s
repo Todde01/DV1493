@@ -12,6 +12,9 @@ currentPos:
 inBuffer: 
     .space 64
 
+outBuffer:
+    .space 64
+
 
 .text
 
@@ -55,7 +58,7 @@ inImage:
 getInt:
    call getInPos
    leaq inBuffer(%rip), %rbx  # Load address of inBuffer into %rbx
-
+   addq %rax, %rbx
    xor %rdx, %rdx             # Clear %rdx, will store the final integer value
    xor %rsi, %rsi             # Clear %rsi, will use as flag for negativity
    xor %rcx, %rcx             # Clear %rcx, count of characters processed
@@ -104,63 +107,91 @@ parsing_done:
    ret
    
 
-#getText:
-#    # rdi = inbuffer
-#    # rsi = antal characters
-#    loop:
-#    cmp %rsi, $0
-#    je return
-#
-#
-#    movzbl (%rdi), %r8d         # Load next character
-#    inc %rdi                    # Increment buffer pointer
-#    dec %rsi                    # Decrement character counter
-#
-#
-#    jmp loop
-#
-#
-#
-#return:
-#    ret
-#
-
-#    # rdi = inbuffer
-#    # rsi = antal characters
-
 getText:
-    call getInPos
-    leaq inBuffer(%rip), %r9
-    addq currentPos, %r9
-    xor %rax, %rax
-    xor %rcx, %rcx
+    # Assume %rdi = buf, %rsi = n (maximum characters to copy)
 
-getTextLoop:
-    movzbl (%r9), %rcx
-    cmp null, %rcx
-    je getTextEnd
-    cmp 
+    push %rbp            # Save base pointer
+    mov %rsp, %rbp       # Set stack pointer
 
+    # Call getInPos to get the current position
+    call getInPos        # Return value in %rax (currentPos)
+    
+    # Calculate current pointer in inBuffer
+    leaq inBuffer(%rip), %r9    # Start of inBuffer
+    add %rax, %r9               # Current position in inBuffer
 
-MAX POS = 64 - current pos
+    ########### CHECK IF BUFFER IS EMPTY OR AT END ###########
 
+    movzbl (%r9), %eax       # Load byte at current position into %eax
+    test %eax, %eax          # Check if byte is zero (end or empty)
+    jz .callInImage          # If zero, buffer is empty or at end, need to refill
+    
+    # Prepare for copying
+    mov %rdi, %rdx              # Copy destination pointer to %rdx (buf)
+    xor %rcx, %rcx              # Counter for number of characters copied
 
-getTextEnd: # maybe cancel here instead idk
+.copyLoop:
+    # Check if we have copied n characters
+    cmp %rsi, %rcx
+    je .doneCopying
+
+    # Load byte from inBuffer, check for buffer end
+    movzbl (%r9), %eax          # Load byte into %eax
+    test %al, %al               # Check if it's 0 (end of inBuffer)
+    je .doneCopying             # If it's zero, we're done
+
+    # Store byte in buf, increment pointers and counter
+    mov %al, (%rdx)
+    inc %r9
+    inc %rdx
+    inc %rcx
+
+    jmp .copyLoop
+
+.callInImage:
+    # Call inImage to refill the buffer
     call inImage
+    # After refilling, reset current pointer position and retry getting text
+    xor %rax, %rax           # Reset position to start of buffer
+    mov %rax, currentPos(%rip)
+    jmp getText              # Restart getText function
+
+.doneCopying:
+    # Null terminate the string in buf
+    movb $0x00, (%rdx)
+
+    # Update currentPos
+    mov %rcx, %rax              # Move count to %rax
+    add currentPos(%rip), %rax  # Update currentPos with count
+    mov %rax, currentPos(%rip)
+    mov %rcx, %rax              # Move count to %rax for return value (ugly code :))
+
+    # Restore stack and base pointers, return
+    mov %rbp, %rsp
+    pop %rbp
     ret
 
-getMaxPos:
-    call getInPos
-    cmp $64, %rax
-    jge setMaxPos
+#    # rdi = adress till minnesutrymme
+#    # rsi = antal characters
 
-setMaxPos:
-    movq $64, %rax
-    ret
+
+emptyBuffer:
+    call inImage
+    jmp getText
+
+
+#getMaxPos:
+#    call getInPos
+#    cmp $64, %rax
+#    jge setMaxPos
+#
+#setMaxPos:
+#    movq $64, %rax
+#    ret
 
 
 getChar:
-    movq currentPos(%rip), %rax
+    call getInPos
     movzbl inBuffer(%rax), %eax
     incq currentPos(%rip)
     ret
@@ -175,13 +206,13 @@ getInPos:
 setInPos:
     cmp 0, %rdi
     jge checkUpperBound
-    movq $0, %rdi
+    movq $0, currentPos(%rip)
 
 checkUpperBound:
     movq $64, %rcx
     cmpq %rdi, %rcx
     jle setPos
-    movq %rcx, %rdi
+    movq $64, currentPos(%rip)
 
 setPos:
     movq %rdi, currentPos(%rip)
@@ -205,5 +236,3 @@ putChar:
 
 putInt:
     ret
-
-
