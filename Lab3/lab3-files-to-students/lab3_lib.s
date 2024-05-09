@@ -8,6 +8,9 @@ null:        .byte   0x00
 currentPos:
     .quad 0
 
+currentPos2:
+    .quad 0
+
 .section .bss
 inBuffer: 
     .space 64
@@ -127,7 +130,7 @@ getText:
     jz .callInImage          # If zero, buffer is empty or at end, need to refill
     
     # Prepare for copying
-    mov %rdi, %rdx              # Copy destination pointer to %rdx (buf)
+    mov (%rdi), %rdx              # Copy destination pointer to %rdx (buf)
     xor %rcx, %rcx              # Counter for number of characters copied
 
 .copyLoop:
@@ -225,6 +228,7 @@ outImage:
     ret
 
 getOutPos:
+    movq currentPos2(%rip), %rax
     ret
 
 setOutPos:
@@ -234,5 +238,72 @@ putChar:
     ret
 
 
+
+#    # rdi har vi talet n som ska läggas in outbufferten
+#putInt:
+#    call getOutPos
+#    leaq outBuffer(%rip), %rbx  # Load address of outBuffer into %rbx
+#    add %rax, %rbx               # Current position in inBuffer
+#
+#    mov %rdi, (%rbx)          # Load current character into %r8
+#
+#
+#    ret
+
 putInt:
+    # Get the current output buffer position
+    call getOutPos            
+    leaq outBuffer(%rip), %rbx
+    add %rax, %rbx            
+
+    push %rbp
+    mov %rsp, %rbp            
+
+    push %rbx                 # Save %rbx which points to the current buffer position
+    push %rdi                 # Save original %rdi
+    push %rcx                 # Save %rcx
+
+    # Check if the number is negative
+    test %rdi, %rdi
+    jge .convert              # Jump to convert if the number is non-negative
+    neg %rdi                  # Negate the number if it is negative
+
+.convert:
+    mov %rdi, %rax            # Move the number to %rax for division
+    mov $10, %rcx             # Divider (base 10)
+    
+
+
+.reverse_loop:
+    xor %rdx, %rdx            # Clear %rdx for division
+    div %rcx                  # Divide %rax by 10, result in %rax, remainder in %rdx
+    add $'0', %rdx            # Convert the remainder to ASCII
+    inc %rbx                  # Move back in the buffer
+    mov %dl, (%rbx)           # Store the ASCII character
+    mov %rdx, outBuffer(%rip) 
+    incq currentPos2(%rip)    # Increment the position counter
+
+    test %rax, %rax           # Check if the quotient is zero
+
+    jnz .reverse_loop         # Continue loop if quotient is not zero
+
+    # Load the original %rdi saved on the stack to check if it was negative
+    mov %rsp, %rbx              # Move stack pointer to %rbx for easier arithmetic
+    add $16, %rbx               # Adjust %rbx to point to the saved %rdi value on the stack
+    mov %rbx, %rbx              # Load the value at (%rbx) into %rbx
+    cmp $0, %rbx                # Compare loaded value with 0
+    jge .done_conversion
+    dec %rbx                    # Move back one more position in buffer
+    movb $'-', (%rbx)           # Insert negative sign
+
+    
+.done_conversion:
+    lea (%rbx), %rdi          # Calculate the new length of the string
+    call setOutPos            # Update the output position
+
+    pop %rcx                  # Restore registers
+    pop %rdi
+    pop %rbx
+    mov %rbp, %rsp            # Restore the stack pointer
+    pop %rbp                  # Restore the base pointer
     ret
