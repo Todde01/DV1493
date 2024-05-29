@@ -1,15 +1,15 @@
 .data
-
-
-
 null:        .byte   0x00
-
 
 currentPos:
     .quad 0
 
 currentPos2:
     .quad 0
+
+MAXPOS:    
+    .quad   0
+
 
 .section .bss
 inBuffer: 
@@ -18,32 +18,19 @@ inBuffer:
 outBuffer:
     .space 64
 
-
 .text
-
-
 .global inImage
 .global getInt
 .global getText
 .global getChar
 .global getInPos
 .global setInPos
-
-
 .global outImage
 .global putInt
 .global putText
 .global putChar
 .global getOutPos
 .global setOutPos
-
-
-
-
-
-
-
-
 
 
 inImage:
@@ -54,14 +41,16 @@ inImage:
     movq $0, currentPos(%rip)  # reset current position to 0
     ret
 
-
-
-
-
 getInt:
    call getInPos
    leaq inBuffer(%rip), %rbx  # Load address of inBuffer into %rbx
    addq %rax, %rbx
+
+   # Check if the buffer is empty or at the end
+   movzbl (%rbx), %r8d              # Load the current character into %r8
+   test %r8, %r8                    # Test if the character is 0 (end of buffer)
+   jz .callInImage2                  # If zero, call inImage to refill the buffer
+
    xor %rdx, %rdx             # Clear %rdx, will store the final integer value
    xor %rsi, %rsi             # Clear %rsi, will use as flag for negativity
    xor %rcx, %rcx             # Clear %rcx, count of characters processed
@@ -70,7 +59,9 @@ getInt:
    inc %rbx                   # Move to the next character
    incq currentPos(%rip)      # Increment position
 
-readChar:
+.readChar:
+   cmp $' ', %r8                    # Check if the character is a space
+   je .skipWhiteSpace               # If space, skip to the next character
    cmp $'-', %r8              # Check if negative
    je isNegative              # Jump if negative
    cmp $'+', %r8d              # Check if positive explicitly indicated
@@ -88,12 +79,6 @@ isPositive:
 isNegative:
    mov $1, %rsi               # Set %rsi to 1 to indicate negative number
 
-
-#skipSign:
-#   inc %rbx                    # Move to the next character in buffer
-#   incq currentPos(%rip)       # Increment position in buffer
-#   jmp nextChar                # Jump to read next character without conversion
-
 nextChar:
    movzbl (%rbx), %r8d         # Load next character
    inc %rbx                    # Increment buffer pointer
@@ -108,7 +93,17 @@ finish_parsing:
 parsing_done:
    mov %rdx, %rax              # Move the result to %rax for return
    ret
-   
+
+.skipWhiteSpace:
+    movzbl (%rbx), %r8d              # Load the next character
+    inc %rbx                         # Increment buffer pointer
+    incq currentPos(%rip)            # Increment position counter
+    jmp .readChar                    # Continue reading characters
+
+.callInImage2:
+    call inImage                     # Refill the buffer
+    call getInt                      # Retry getting the integer
+    ret
 
 getText:
     # Assume %rdi = buf, %rsi = n (maximum characters to copy)
@@ -130,7 +125,7 @@ getText:
     jz .callInImage          # If zero, buffer is empty or at end, need to refill
     
     # Prepare for copying
-    mov (%rdi), %rdx              # Copy destination pointer to %rdx (buf)
+    mov %rdi, %rdx                # Move the address in %rdi directly to %rdx
     xor %rcx, %rcx              # Counter for number of characters copied
 
 .copyLoop:
@@ -221,89 +216,190 @@ setPos:
     movq %rdi, currentPos(%rip)
     ret
 
-outImage:  
+outImage:
+    # Load the address of the output buffer into %rdi (the first argument for puts)
+    leaq outBuffer(%rip), %rdi
+
+
+
+    
+    # Call puts to output the string in the output buffer
+    call puts
+    
+    # Reset the buffer position to indicate the buffer is now empty
+    movq $0, %rdi
+    call setOutPos
+    
     ret
 
- putText:   
-    ret
+putText:
+    push %rbp               # Save the base pointer
+    mov %rsp, %rbp          # Set the stack pointer as the new base pointer
+
+    mov %rdi, %rsi          # Copy the source address (buf) to %rsi
+    call getOutPos          # Get the current position in the output buffer
+    leaq outBuffer(%rip), %rbx  # Calculate the base of the output buffer
+    add %rax, %rbx          # Move %rbx to point to the current position in the output buffer
+
+.copy_loop:
+    movb (%rsi), %al        # Load the byte from the source buffer into %al
+    test %al, %al           # Check if the byte is zero (end of the string)
+    je .done2               # If zero, we're done copying
+
+    movq currentPos2(%rip), %rcx  # Get the current output buffer position
+    cmp $63, %rcx           # Check if the output buffer is full (max 63 bytes, as the buffer has 64 bytes)
+    jge .flush_buffer2      # If the buffer is full, flush it
+
+    movb %al, (%rbx)        # Store the byte in the output buffer
+    inc %rbx                # Increment the output buffer pointer
+    inc %rsi                # Increment the source buffer pointer
+    incq currentPos2(%rip)  # Increment the current output buffer position
+    jmp .copy_loop          # Continue copying the next byte
+
+.flush_buffer2:
+    call outImage           # Flush the output buffer
+    movq $0, currentPos2(%rip)  # Reset the output buffer position counter
+    leaq outBuffer(%rip), %rbx  # Reset %rbx to the start of the output buffer
+    jmp .copy_loop          # Continue copying after flushing
+
+.done2:
+    movb $0, (%rbx)         # Null-terminate the output buffer  
+    pop %rbp                # Restore the base pointer
+    ret                     # Return from the function
+
 
 getOutPos:
     movq currentPos2(%rip), %rax
     ret
 
 setOutPos:
+    cmpq $0, %rdi
+    jle setOutPosZero    # Set to zero if input is less than zero
+
+    cmpq $63, %rdi
+    jl setPosition     # If input is within the buffer bounds, set it
+
+    # If the input position is an underflow or overflow, reset it to 0
+    # This catches cases like 4294967295 which result from unsigned underflows.
+    jmp setOutPosZero
+
+setPosition:
+    movq %rdi, currentPos2(%rip)  # Set the buffer position if within bounds
     ret
 
-putChar:    
+setOutPosZero:
+    movq $0, currentPos2(%rip)
     ret
 
 
+putChar:
+    push %rbp                  # Save the base pointer
+    mov %rsp, %rbp             # Set up the new base pointer
 
-#    # rdi har vi talet n som ska läggas in outbufferten
-#putInt:
-#    call getOutPos
-#    leaq outBuffer(%rip), %rbx  # Load address of outBuffer into %rbx
-#    add %rax, %rbx               # Current position in inBuffer
-#
-#    mov %rdi, (%rbx)          # Load current character into %r8
-#
-#
-#    ret
+    # Load the current output buffer position
+    call getOutPos
+    leaq outBuffer(%rip), %rbx # Load the base address of the output buffer
+    add %rax, %rbx             # Move %rbx to the current position in the output buffer
 
+    # Check if the buffer is full (63 characters used, leaving space for null terminator)
+    movq currentPos2(%rip), %rcx # Get the current output buffer position
+    cmp $63, %rcx               # Compare with the maximum buffer size (63 characters)
+    jl .store_char              # If less than 63, jump to store the character
+
+    # If buffer is full, flush it
+    call outImage               # Flush the output buffer
+
+.store_char:
+    mov %dil, (%rbx)            # Store the character in the output buffer
+    incq currentPos2(%rip)      # Increment the current output buffer position
+
+    pop %rbp                    # Restore the base pointer
+    ret                         # Return from the function
+
+
+
+
+# rdi = talet som ska skrivas ut
 putInt:
-    # Get the current output buffer position
-    call getOutPos            
-    leaq outBuffer(%rip), %rbx
-    add %rax, %rbx            
+    call getOutPos              # Get the current output buffer position
+    leaq outBuffer(%rip), %rbx  # Calculate base of output buffer
+    add %rax, %rbx              # Move %rbx to point to the current position in output buffer
 
-    push %rbp
-    mov %rsp, %rbp            
+    push %rbp                   # Save base pointer
+    mov %rsp, %rbp              # Set up new base pointer
 
-    push %rbx                 # Save %rbx which points to the current buffer position
-    push %rdi                 # Save original %rdi
-    push %rcx                 # Save %rcx
+    push $0                   # push null for null termination at the end
+
+    xor %rsi, %rsi              # Clear %rsi for negative flag
 
     # Check if the number is negative
     test %rdi, %rdi
-    jge .convert              # Jump to convert if the number is non-negative
-    neg %rdi                  # Negate the number if it is negative
+    jge .convert                # If non-negative, jump to convert
+    neg %rdi                    # Negate the number if negative
+    mov $1, %rsi                # Set flag to indicate negative number
 
 .convert:
-    mov %rdi, %rax            # Move the number to %rax for division
-    mov $10, %rcx             # Divider (base 10)
-    
-
+    mov %rdi, %rax              # Move the number to %rax for division
+    mov $10, %rcx               # Set divisor for base 10
 
 .reverse_loop:
-    xor %rdx, %rdx            # Clear %rdx for division
-    div %rcx                  # Divide %rax by 10, result in %rax, remainder in %rdx
-    add $'0', %rdx            # Convert the remainder to ASCII
-    inc %rbx                  # Move back in the buffer
-    mov %dl, (%rbx)           # Store the ASCII character
-    mov %rdx, outBuffer(%rip) 
-    incq currentPos2(%rip)    # Increment the position counter
+    xor %rdx, %rdx              # Clear %rdx for division remainder
+    div %rcx                    # Divide %rax by 10, remainder in %rdx
+    add $'0', %rdx              # Convert the remainder to ASCII
+    push %rdx                   # Push ASCII character onto the stack
 
-    test %rax, %rax           # Check if the quotient is zero
+    test %rax, %rax             # Test quotient
+    jnz .reverse_loop           # Continue loop if quotient is not zero
 
-    jnz .reverse_loop         # Continue loop if quotient is not zero
+    # If the original number was negative, add a negative sign
+    mov %rbx, %rax              # Move the saved original %rdi
+    cmp $0, %rax
+    jl .add_negative            # Jump to add negative sign if original number was negative
 
-    # Load the original %rdi saved on the stack to check if it was negative
-    mov %rsp, %rbx              # Move stack pointer to %rbx for easier arithmetic
-    add $16, %rbx               # Adjust %rbx to point to the saved %rdi value on the stack
-    mov %rbx, %rbx              # Load the value at (%rbx) into %rbx
-    cmp $0, %rbx                # Compare loaded value with 0
-    jge .done_conversion
-    dec %rbx                    # Move back one more position in buffer
-    movb $'-', (%rbx)           # Insert negative sign
+.stack_to_buffer:
+    # Pop digits off the stack and store them in the output buffer
+    test %rsi, %rsi             # Check if the number was negative
+    jnz negativeCheck           # Check if the number was negative
+    cmp %rsp, %rbp              # Compare stack pointer with base pointer
+    je .done                    # If equal, all digits have been moved
+    pop %rax                    # Pop next digit (ASCII char)
 
-    
-.done_conversion:
-    lea (%rbx), %rdi          # Calculate the new length of the string
-    call setOutPos            # Update the output position
 
-    pop %rcx                  # Restore registers
-    pop %rdi
-    pop %rbx
-    mov %rbp, %rsp            # Restore the stack pointer
-    pop %rbp                  # Restore the base pointer
-    ret
+
+    # Check buffer space before writing the character
+    movq currentPos2(%rip), %rcx # Current buffer position
+    cmp $63, %rcx               # Check if buffer is full
+    jge .flush_buffer           # Flush buffer if full
+
+    mov %al, (%rbx)             # Store it at the current buffer position
+    cmp $0, %rax
+    je .done                    # If null, we're done
+    inc %rbx                    # Increment buffer position
+    jmp .stack_to_buffer        # Repeat until stack is empty
+
+.add_negative:
+    movb $'-', (%rbx)           # Store negative sign
+    inc %rbx                    # Increment buffer position
+    jmp .stack_to_buffer        # Continue moving digits
+
+.flush_buffer:
+    call outImage               # Flush the buffer
+    movq $0, currentPos2(%rip)  # Reset the output buffer position counter
+    leaq outBuffer(%rip), %rbx  # Reset %rbx to the start of the output buffer
+    jmp .stack_to_buffer        # Continue processing stack
+
+negativeCheck:
+    push $'-'                   # Push negative sign if number was negative
+    mov $0, %rsi                # Reset flag
+    jmp .stack_to_buffer        # Continue processing stack
+
+.done:
+    leaq outBuffer(%rip), %rax  # Load address of output buffer
+    sub %rax, %rbx              # Calculate new output buffer position
+    mov %rbx, %rdi              # Move the offset to %rdi
+    call setOutPos              # Set the new output position
+
+    pop %rcx                    # Restore %rcx
+    mov %rbp, %rsp              # Restore stack pointer
+    pop %rbp                    # Restore base pointer
+    ret   
